@@ -1,0 +1,62 @@
+# A container with all common configurations
+common_properties: 
+  german: &german
+    sens_attr: Gender
+    sens_idx: 1
+    sens_num: 100
+    predict_attr: GoodCustomer
+    label_num: 100
+    
+  credit: &credit
+    sens_attr: Age
+    sens_idx: 1
+    sens_num: 6000
+    predict_attr: NoDefaultNextMonth
+    label_num: 6000
+
+  bail: &bail
+    sens_attr: WHITE
+    sens_idx: 0
+    sens_num: 100
+    predict_attr: RECID
+    label_num: 100
+
+  pokec: &pokec
+    sens_attr: region
+    sens_idx: 1
+    sens_num: 200
+    predict_attr: I_am_working_in_field
+    label_num: 500
+    test_idx: False
+    
+  nba: &nba
+    sens_attr: country 
+    sens_idx: 1
+    sens_num: 50
+    predict_attr: SALARY
+    label_num: 100
+    test_idx: True
+
+datasets:
+  german:
+    <<: *german
+  germanA:
+    <<: *german
+
+  credit:
+    <<: *credit
+  creditA:
+    <<: *credit
+  
+  bail:
+    <<: *bail
+  bailA:
+    <<: *bail
+  
+  pokec_z:
+    <<: *pokec
+  pokec_n:
+    <<: *pokec
+
+  nba:
+    <<: *nba
