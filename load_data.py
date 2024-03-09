@@ -5,7 +5,6 @@ import scipy.sparse as sp
 import torch
 import random
 import yaml
-import pickle
 import time
 from scipy.sparse import load_npz
 from utils import feature_norm
@@ -17,7 +16,7 @@ class DataLoader:
         np.random.seed(self.seed)
 
         self.name = args.dataset
-        self.config_path = './datasets_config.yaml'
+        self.config_path = './config_datasets.yaml'
         self.config = self.load_config()
         self.path = f'./dataset/{self.name}'
         self.map = {
@@ -281,7 +280,7 @@ class DataLoader:
 
 class SyntheticGenerator:
     def __init__(self, ifSave=True, seed=20):
-        config_path = './synthetic_config.yaml'
+        config_path = './config_synthetic.yaml'
         with open(config_path, 'r') as config_file:
             self.config = yaml.safe_load(config_file)
         self.seed = seed

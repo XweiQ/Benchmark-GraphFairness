@@ -4,7 +4,6 @@ import time
 import pickle
 import argparse
 import numpy as np
-import logging
 import torch
 import torch.nn.functional as F
 import torch.optim as optim

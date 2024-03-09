@@ -1,6 +1,5 @@
 #%%
 import dgl
-import ipdb
 import time
 import pickle
 import argparse
@@ -192,7 +191,7 @@ def main(args):
 if __name__ == '__main__':
     # get arguments
     parser = argparse.ArgumentParser()
-    args = get_baseline_args(parser)
+    args = get_base_args(parser)
     # set the result path
     base_path = os.path.join('./'+args.dataset, args.model, 'layers'+str(args.num_layers), 
                         'lr'+str(args.lr)+'wd'+str(args.weight_decay), 'drop'+str(args.dropout))

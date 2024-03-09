@@ -1,8 +1,4 @@
 import os
-import dgl
-import torch
-import random
-import pickle
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -80,6 +76,9 @@ def compute_statistics(sens, labels, adj, x):
     return node_counts, node_proportions, edge_counts, edge_proportions, degree_distribution
 
 def add_edges(adj, sens, labels, num_edges_to_add, edge_type):
+    """
+    Add 1000 s0y1-s1y1 edges: add_edges(adj, sens, labels, 1000, 0,1, 1,1)
+    """
     np.random.seed(42)
     
     # Filtering eligible nodes
