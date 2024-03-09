@@ -8,7 +8,6 @@ import torch.nn.functional as F
 from torch.nn.utils import spectral_norm
 from dgl.nn.pytorch import GraphConv
 
-# NIFTY复现FairGCN时使用的GCN和FairGCN使用的GCN body有激活函数的差异，以下为FairGCN的定义。使用时需注释掉line 3
 class GCN(nn.Module):
     def __init__(self, nfeat, nhid, nlayer, nclass, dropout):
         super(GCN, self).__init__()
@@ -26,15 +25,10 @@ class GCN_Body(nn.Module):
         self.gc1 = GraphConv(nfeat, nhid)
         self.gc2 = GraphConv(nhid, nhid)
         self.dropout = nn.Dropout(dropout)
-        self.gc3 = spectral_norm(GraphConv(nfeat, nhid))
     def forward(self, x, g):
-        # 原代码
         x = F.relu(self.gc1(g, x))
         x = self.dropout(x)
         x = self.gc2(g, x)
-        
-        # 比较使用1layerGCN，或加上spectral norm(报错)
-        # x = self.gc3(g, x)
         return x    
 
 def get_model(nfeat, args):

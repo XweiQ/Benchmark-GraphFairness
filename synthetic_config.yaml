@@ -1,0 +1,24 @@
+dataset: synthetic
+n: 5000
+dy: 24
+ds: 24
+yscale: 0.5
+sscale: 0.5
+covy: 10
+covs: 10
+prob_s0y0: 0.25
+prob_s0y1: 0.25
+prob_s1y0: 0.25
+prob_s1y1: 0.25
+prob_edges:
+  s0y0-s0y0: 0.008
+  s0y0-s0y1: 0.002
+  s0y0-s1y0: 0.002
+  s0y0-s1y1: 0.001
+  s0y1-s0y1: 0.004
+  s0y1-s1y0: 0.002
+  s0y1-s1y1: 0.002
+  s1y0-s1y0: 0.004
+  s1y0-s1y1: 0.002
+  s1y1-s1y1: 0.006
+train_ratio: 0.6

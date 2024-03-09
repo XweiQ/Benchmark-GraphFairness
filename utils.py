@@ -1,15 +1,13 @@
 import os
 import dgl
-import h5py
 import torch
 import random
 import pickle
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from scipy.spatial import distance_matrix
 from multiprocessing import Lock
-
+from collections import Counter
     
 def create_directory_safely(base_path):
     """
@@ -20,720 +18,125 @@ def create_directory_safely(base_path):
         if not os.path.exists(base_path):
             os.makedirs(base_path,exist_ok=True)
 
-# def encode_onehot(labels):
-#     classes = set(labels)
-#     classes_dict = {c: np.identity(len(classes))[i, :] for i, c in
-#                     enumerate(classes)}
-#     labels_onehot = np.array(list(map(classes_dict.get, labels)),
-#                              dtype=np.int32)
-#     return labels_onehot
+def compute_statistics(sens, labels, adj, x):
+    num_nodes, num_attr = x.shape[0], x.shape[1]
+    print(f'nodes: {num_nodes}, attr: {num_attr}')
+    # Counting number and proportion of nodes in the four type groups
+    node_counts = Counter()
+    for s, y in zip(sens, labels):
+        node_counts[(s.item(), y.item())] += 1
 
-def build_relationship(x, thresh=0.25):
-    df_euclid = pd.DataFrame(1 / (1 + distance_matrix(x.T.T, x.T.T)), columns=x.T.columns, index=x.T.columns)
-    df_euclid = df_euclid.to_numpy()
-    idx_map = []
-    for ind in range(df_euclid.shape[0]):
-        max_sim = np.sort(df_euclid[ind, :])[-2]
-        neig_id = np.where(df_euclid[ind, :] > thresh*max_sim)[0]
-        import random
-        random.seed(912)
-        random.shuffle(neig_id)
-        for neig in neig_id:
-            if neig != ind:
-                idx_map.append([ind, neig])
-    print('building edge relationship complete')
-    idx_map =  np.array(idx_map)
+    total_nodes = len(sens)
+    node_proportions = {k: v / total_nodes for k, v in node_counts.items()}
+    node_types = ['S=0 Y=0', 'S=0 Y=1', 'S=1 Y=0', 'S=1 Y=1']
+
+    node_counts_list = [int(node_counts.get((s, y), 0)) for s in [0, 1] for y in [0, 1]]
+    node_proportions_list = [round(node_proportions.get((s, y), 0), 4) for s in [0, 1] for y in [0, 1]]
+    df_nodes = pd.DataFrame([node_counts_list, node_proportions_list], columns=node_types, index=['数量', '比例'])
+    print(df_nodes)
+
+    # Counting number and proportion of ten undirected edges
+    edge_counts = Counter()
+    for i, j in zip(*adj.nonzero()):
+        if i < j:
+            edge_type = (sens[i].item(), labels[i].item(), sens[j].item(), labels[j].item())
+            edge_counts[edge_type] += 1
+
+    total_edges = sum(edge_counts.values())
+    edge_proportions = {k: v / total_edges for k, v in edge_counts.items()}
+
+    edge_types = [
+        's0y0-s0y0', 's0y1-s0y1', 's1y0-s1y0', 's1y1-s1y1', # s same y same
+        's0y0-s1y0', 's0y1-s1y1', # s diff y same
+        's0y0-s0y1', 's1y0-s1y1', # s same y diff
+        's0y0-s1y1', 's0y1-s1y0'  # s diff y diff
+    ]
+
+    edge_counts_list = [0] * 10
+    edge_proportions_list = [0] * 10
+
+    for ((s1, y1, s2, y2), count) in edge_counts.items():
+        edge_type = tuple(sorted([(s1, y1), (s2, y2)]))
+        edge_type_str = f's{int(edge_type[0][0])}y{int(edge_type[0][1])}-s{int(edge_type[1][0])}y{int(edge_type[1][1])}'
+
+        if edge_type_str in edge_types:
+            index = edge_types.index(edge_type_str)
+            edge_counts_list[index] += count
+            edge_proportions_list[index] += edge_proportions[(s1, y1, s2, y2)]
+
+    edge_counts_list = [int(count) for count in edge_counts_list]
+    edge_proportions_list = [round(proportion, 4) for proportion in edge_proportions_list]
+
+    df_edges = pd.DataFrame([edge_counts_list, edge_proportions_list], columns=edge_types, index=['数量', '比例'])
+    print('num_edges: ', total_edges)
+    print(df_edges)
+
+    # Calculate the distribution of node degrees
+    degrees = adj.sum(axis=1).A.flatten()
+    degree_distribution = Counter(degrees)
+    average_degree = np.mean(degrees)
+    print('avg degree: ', average_degree)
+
+    return node_counts, node_proportions, edge_counts, edge_proportions, degree_distribution
+
+def add_edges(adj, sens, labels, num_edges_to_add, edge_type):
+    np.random.seed(42)
     
-    return idx_map
-
-# def calculate_joint_probabilities(y, s):
-#     joint_counts = {(0, 0): 0, (0, 1): 0, (1, 0): 0, (1, 1): 0}
-#     total_pairs = len(y)
-
-#     for y_val, s_val in zip(y, s):
-#         joint_counts[(y_val, s_val)] += 1
-
-#     joint_probabilities = {(k[0], k[1]): v / total_pairs for k, v in joint_counts.items()}
-#     return joint_probabilities
-
-# def print_joint_probability_chart_plain(joint_probabilities):
-#     # Calculate marginal probabilities
-#     p_y0 = joint_probabilities[(0, 0)] + joint_probabilities[(0, 1)]
-#     p_y1 = joint_probabilities[(1, 0)] + joint_probabilities[(1, 1)]
-#     p_s0 = joint_probabilities[(0, 0)] + joint_probabilities[(1, 0)]
-#     p_s1 = joint_probabilities[(0, 1)] + joint_probabilities[(1, 1)]
-
-#     # Print joint probability chart with marginal probabilities
-#     print("Joint porbability of y and s: ")
-#     print("        s=0      s=1     P(y)")
-#     print("y=0    {:.2f}     {:.2f}     {:.2f}".format(joint_probabilities[(0, 0)], joint_probabilities[(0, 1)], p_y0))
-#     print("y=1    {:.2f}     {:.2f}     {:.2f}".format(joint_probabilities[(1, 0)], joint_probabilities[(1, 1)], p_y1))
-#     print("P(s)   {:.2f}     {:.2f}".format(p_s0, p_s1))
-
-
-def load_credit(dataset, sens_attr="Age", predict_attr="NoDefaultNextMonth", path="./dataset/credit/", label_number=1000):
-    print('Loading {} dataset from {}'.format(dataset, path))
-    idx_features_labels = pd.read_csv(os.path.join(path,"{}.csv".format(dataset)))
-    header = list(idx_features_labels.columns)
-    header.remove(predict_attr)
-    header.remove('Single')
-
-    # build relationship
-    if os.path.exists(f'{path}/{dataset}_edges.txt'):
-        edges_unordered = np.genfromtxt(f'{path}/{dataset}_edges.txt').astype('int')
-    else:
-        edges_unordered = build_relationship(idx_features_labels[header], thresh=0.7)
-        np.savetxt(f'{path}/{dataset}_edges.txt', edges_unordered)
-
-    features = sp.csr_matrix(idx_features_labels[header], dtype=np.float32)
-    labels = idx_features_labels[predict_attr].values
-    idx = np.arange(features.shape[0])
-    idx_map = {j: i for i, j in enumerate(idx)}
-    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())),
-                     dtype=int).reshape(edges_unordered.shape)
-    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
-                        shape=(labels.shape[0], labels.shape[0]),
-                        dtype=np.float32)
-
-    # build symmetric adjacency matrix
-    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
-    adj = adj + sp.eye(adj.shape[0])
-
-    features = torch.FloatTensor(np.array(features.todense()))
-    labels = torch.LongTensor(labels)
-
-    import random
-    random.seed(20)
-    label_idx_0 = np.where(labels==0)[0]
-    label_idx_1 = np.where(labels==1)[0]
-    random.shuffle(label_idx_0)
-    random.shuffle(label_idx_1)
-
-    idx_train = np.append(label_idx_0[:min(int(0.5 * len(label_idx_0)), label_number//2)], label_idx_1[:min(int(0.5 * len(label_idx_1)), label_number//2)])
-    idx_val = np.append(label_idx_0[int(0.5 * len(label_idx_0)):int(0.75 * len(label_idx_0))], label_idx_1[int(0.5 * len(label_idx_1)):int(0.75 * len(label_idx_1))])
-    idx_test = np.append(label_idx_0[int(0.75 * len(label_idx_0)):], label_idx_1[int(0.75 * len(label_idx_1)):])
-
-    sens = idx_features_labels[sens_attr].values.astype(int)
-    sens = torch.FloatTensor(sens)
-    idx_train = torch.LongTensor(idx_train)
-    idx_val = torch.LongTensor(idx_val)
-    idx_test = torch.LongTensor(idx_test)
-
-    return adj, features, labels, idx_train, idx_val, idx_test, sens
-
-def load_bail(dataset, sens_attr="WHITE", predict_attr="RECID", path="./dataset/bail/", label_number=1000):
-    print('Loading {} dataset from {}'.format(dataset, path))
-    idx_features_labels = pd.read_csv(os.path.join(path,"{}.csv".format(dataset)))
-    header = list(idx_features_labels.columns)
-    header.remove(predict_attr)
-
-    # build relationship
-    if os.path.exists(f'{path}/{dataset}_edges.txt'):
-        edges_unordered = np.genfromtxt(f'{path}/{dataset}_edges.txt').astype('int')
-    else:
-        edges_unordered = build_relationship(idx_features_labels[header], thresh=0.6)
-        np.savetxt(f'{path}/{dataset}_edges.txt', edges_unordered)
-
-    features = sp.csr_matrix(idx_features_labels[header], dtype=np.float32)
-    labels = idx_features_labels[predict_attr].values
-
-    idx = np.arange(features.shape[0])
-    idx_map = {j: i for i, j in enumerate(idx)}
-    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())),
-                     dtype=int).reshape(edges_unordered.shape)
-    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
-                        shape=(labels.shape[0], labels.shape[0]),
-                        dtype=np.float32)
-
-    # build symmetric adjacency matrix
-    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
-    adj = adj + sp.eye(adj.shape[0])
-
-    features = torch.FloatTensor(np.array(features.todense()))
-    labels = torch.LongTensor(labels)
-
-    import random
-    random.seed(20)
-    label_idx_0 = np.where(labels==0)[0]
-    label_idx_1 = np.where(labels==1)[0]
-    random.shuffle(label_idx_0)
-    random.shuffle(label_idx_1)
-    idx_train = np.append(label_idx_0[:min(int(0.5 * len(label_idx_0)), label_number//2)], label_idx_1[:min(int(0.5 * len(label_idx_1)), label_number//2)])
-    idx_val = np.append(label_idx_0[int(0.5 * len(label_idx_0)):int(0.75 * len(label_idx_0))], label_idx_1[int(0.5 * len(label_idx_1)):int(0.75 * len(label_idx_1))])
-    idx_test = np.append(label_idx_0[int(0.75 * len(label_idx_0)):], label_idx_1[int(0.75 * len(label_idx_1)):])
-
-    sens = idx_features_labels[sens_attr].values.astype(int)
-    sens = torch.FloatTensor(sens)
-    idx_train = torch.LongTensor(idx_train)
-    idx_val = torch.LongTensor(idx_val)
-    idx_test = torch.LongTensor(idx_test)
-
-    return adj, features, labels, idx_train, idx_val, idx_test, sens
-
-def load_german(dataset, sens_attr="Gender", predict_attr="GoodCustomer", path="./dataset/german/", label_number=1000):
-    """
-    returns:adj <class 'scipy.sparse.csr.csr_matrix'>, features <class 'torch.Tensor'>, 
-            labels <class 'torch.Tensor'>, sens <class 'torch.Tensor'>, 
-    """
-    print('Loading {} dataset from {}'.format(dataset, path))
-    idx_features_labels = pd.read_csv(os.path.join(path,"{}.csv".format(dataset)))
-    header = list(idx_features_labels.columns)
-    header.remove(predict_attr)
-    header.remove('OtherLoansAtStore')
-    header.remove('PurposeOfLoan')
-
-    # Sensitive Attribute
-    idx_features_labels.loc[idx_features_labels['Gender'] == 'Female', 'Gender'] = 1
-    idx_features_labels.loc[idx_features_labels['Gender'] == 'Male', 'Gender'] = 0
-
-    # build relationship
-    if os.path.exists(f'{path}/{dataset}_edges.txt'):
-        edges_unordered = np.genfromtxt(f'{path}/{dataset}_edges.txt').astype('int')
-    else:
-        edges_unordered = build_relationship(idx_features_labels[header], thresh=0.8)
-        np.savetxt(f'{path}/{dataset}_edges.txt', edges_unordered)
-
-    features = sp.csr_matrix(idx_features_labels[header], dtype=np.float32)
-    labels = idx_features_labels[predict_attr].values
-    labels[labels == -1] = 0
-
-    idx = np.arange(features.shape[0])
-    idx_map = {j: i for i, j in enumerate(idx)}
-    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())),
-                     dtype=int).reshape(edges_unordered.shape)
-    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
-                        shape=(labels.shape[0], labels.shape[0]),
-                        dtype=np.float32)
-    # build symmetric adjacency matrix
-    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
-    adj = adj + sp.eye(adj.shape[0])
-
-    features = torch.FloatTensor(np.array(features.todense()))
-    labels = torch.LongTensor(labels)
-
-    import random
-    random.seed(20)
-    label_idx_0 = np.where(labels==0)[0]
-    label_idx_1 = np.where(labels==1)[0]
-    random.shuffle(label_idx_0)
-    random.shuffle(label_idx_1)
-
-    idx_train = np.append(label_idx_0[:min(int(0.5 * len(label_idx_0)), label_number//2)], label_idx_1[:min(int(0.5 * len(label_idx_1)), label_number//2)])
-    idx_val = np.append(label_idx_0[int(0.5 * len(label_idx_0)):int(0.75 * len(label_idx_0))], label_idx_1[int(0.5 * len(label_idx_1)):int(0.75 * len(label_idx_1))])
-    idx_test = np.append(label_idx_0[int(0.75 * len(label_idx_0)):], label_idx_1[int(0.75 * len(label_idx_1)):])
-
-    sens = idx_features_labels[sens_attr].values.astype(int)
-    sens = torch.FloatTensor(sens)
-    idx_train = torch.LongTensor(idx_train)
-    idx_val = torch.LongTensor(idx_val)
-    idx_test = torch.LongTensor(idx_test)
-
-    return adj, features, labels, idx_train, idx_val, idx_test, sens
-
-
-def load_pokec(dataset,sens_attr,predict_attr, path="./dataset/pokec/", label_number=1000,sens_number=500,seed=19,test_idx=False):
-    """Load data"""
-    print('Loading {} dataset from {}'.format(dataset,path))
-
-    idx_features_labels = pd.read_csv(os.path.join(path,"{}.csv".format(dataset)))  # print(idx_features_labels)
-    header = list(idx_features_labels.columns)
-    header.remove("user_id")
-    header.remove(sens_attr)
-    header.remove(predict_attr)
-    features = sp.csr_matrix(idx_features_labels[header], dtype=np.float32) # <class 'scipy.sparse.csr.csr_matrix'>
-    labels = idx_features_labels[predict_attr].values   # [ 1 -1 -1 ... -1 -1  0] <class 'numpy.ndarray'>
-    
-    # build graph
-    idx = np.array(idx_features_labels["user_id"], dtype=int)   # print(idx)
-    idx_map = {j: i for i, j in enumerate(idx)}
-    edges_unordered = np.genfromtxt(os.path.join(path,"{}_edges.txt".format(dataset)), dtype=int)    # print(edges_unordered, type(edges_unordered), edges_unordered.shape)
-    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())),
-                     dtype=int).reshape(edges_unordered.shape)  # print(edges, edges.shape)
-    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
-                        shape=(labels.shape[0], labels.shape[0]),
-                        dtype=np.float32)
-    
-    # build symmetric adjacency matrix
-    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
-
-    # features = normalize(features)
-    adj = adj + sp.eye(adj.shape[0])
-    features = torch.FloatTensor(np.array(features.todense()))
-    labels = torch.LongTensor(labels)
-
-    import random
-    random.seed(seed)
-    label_idx = np.where(labels>=0)[0]
-    random.shuffle(label_idx)
-
-    idx_train = label_idx[:min(int(0.5 * len(label_idx)),label_number)]
-    idx_val = label_idx[int(0.5 * len(label_idx)):int(0.75 * len(label_idx))]
-    if test_idx:
-        idx_test = label_idx[label_number:]
-        idx_val = idx_test
-    else:
-        idx_test = label_idx[int(0.75 * len(label_idx)):]
-    sens = idx_features_labels[sens_attr].values
-    sens_idx = set(np.where(sens >= 0)[0])
-    idx_test = np.asarray(list(sens_idx & set(idx_test)))
-    sens = torch.FloatTensor(sens)
-    idx_sens_train = list(sens_idx - set(idx_val) - set(idx_test))
-    random.shuffle(idx_sens_train)
-    idx_sens_train = torch.LongTensor(idx_sens_train[:sens_number])
-
-    idx_train = torch.LongTensor(idx_train)
-    idx_val = torch.LongTensor(idx_val)
-    idx_test = torch.LongTensor(idx_test)
-
-    return adj, features, labels, idx_train, idx_val, idx_test, sens,idx_sens_train
-
-
-def gen_synthetic_old(args, gen_graph=True, seed=20):
-    
-    # Parameters for feature generation
-    n = args.n              # num samples
-    yscale = args.yscale        
-    sscale = args.sscale        
-    covy = args.covy        # diagonal elements of convarience matrix of y
-    covs = args.covs        # diagonal elements of convarience matrix of s
-    dy = args.dy            # dim of feature matrix base on label 
-    ds = args.ds            # dim of feature matrix base on sens_attr
-    py1 = args.py1          # probability of y=1 
-    ps1 = args.ps1          # probability of s=1
-    
-    # Parameters for graph structure
-    pysame = args.pysame    # inner link for label group
-    pydif = args.pydif      # inter link for label group
-    psdif = args.psdif      # inter link for sens_attr group
-    pssame0 = args.pssame0  # inner link for s=0
-    pssame1 = args.pssame1  # inner link for s=1  (5*pssame0)
-    
-    # Generate labels y and senstive attr s
-    np.random.seed(seed)
-    y = np.random.binomial(1, py1, n)
-    s = np.random.binomial(1, ps1, n)
-    # s_y1 = np.random.binomial(1, 0.75, n)
-    # s_y0 = np.random.binomial(1, 0.25, n)
-    # s = np.bitwise_and(y, s_y1) + np.bitwise_and(1-y, s_y0)
-    
-    cov_ye = covy*np.identity(dy)
-    cov_se = covs*np.identity(ds)
-    # Generate n samples of ye and se with dimension d1 from separate multivariate Gaussian distributions
-    ye = []
-    se = []
-    for yi in y:
-        if yi == 1:
-            ye.append(np.random.multivariate_normal(-1*yscale*np.ones(dy), cov_ye))
-        elif yi == 0:
-            ye.append(np.random.multivariate_normal(yscale*np.ones(dy), cov_ye))
-    for si in s:
-        if si == 1:
-            se.append(np.random.multivariate_normal(-1*sscale*np.ones(ds), cov_se))
-        elif si == 0:
-            se.append(np.random.multivariate_normal(sscale*np.ones(ds), cov_se))
-    ye = np.array(ye)
-    se = np.array(se)
-    # ye *= yscale
-    # se *= sscale
-    # Concatenate ye and se together for each sample
-    x = np.hstack((ye, se))     #print(x.shape)
-    # Calculate the joint probabilities from y and s
-    # joint_probabilities = calculate_joint_probabilities(y, s)
-    # print_joint_probability_chart_plain(joint_probabilities)
-    # print(f'correlation coef of y and s: {np.corrcoef(s, y)[0,1]:.4f}')
-    # exit()
-    if not gen_graph:
-        return None, y, s, x
-    
-    # Generate label graph 'adj_y' and sens_attr graph 'adj_s'
-    adj_y = y[:, np.newaxis]== y[np.newaxis, :]     # two samples with the same label -> link
-    adj_s = s[:, np.newaxis]== s[np.newaxis, :]     # two samples with the same sens_attr -> link
-    adj_y = adj_y.astype(int)
-    adj_s = adj_s.astype(int)
-    adj_s[s.astype(bool)] *= 2                      # different sens_attr,0; two s=0,1; two s=1,2; 
-    adj_y = np.array([pydif,pysame])[adj_y]
-    # adj_s = np.array([psdif,pssame])[adj_s]
-    adj_s = np.array([psdif,pssame0, pssame1])[adj_s]
-    adj_y = np.random.rand(n,n)<adj_y
-    adj_s = np.random.rand(n,n)<adj_s
-    adj_y = adj_y.astype(int)
-    adj_s = adj_s.astype(int)
-    adj = adj_y|adj_s
-    adj = np.triu(adj) + np.triu(adj, 1).T
-    adj = sp.csr_matrix(adj)
-    
-    # draw_graph_stata(adj, y, s)
-    return adj, y, s, x
-
-def gen_synthetic_2(args, gen_graph=True, seed=20):
-    # Parameters for feature generation
-    n = args.n              # num samples
-    yscale = args.yscale        
-    sscale = args.sscale        
-    covy = args.covy        # diagonal elements of covariance matrix of y
-    covs = args.covs        # diagonal elements of covariance matrix of s
-    dy = args.dy            # dim of feature matrix based on label 
-    ds = args.ds            # dim of feature matrix based on sens_attr
-
-    # Parameters for graph structure
-    pysame = args.pysame    # inner link for label group
-    pydif = args.pydif      # inter link for label group
-    psdif = args.psdif      # inter link for sens_attr group
-    pssame0 = args.pssame0  # inner link for s=0
-    pssame1 = args.pssame1  # inner link for s=1  (5*pssame0)
-    
-    # Define the probabilities for each group
-    prob_s0y0 = args.prob_s0y0
-    prob_s0y1 = args.prob_s0y1
-    prob_s1y0 = args.prob_s1y0
-    prob_s1y1 = args.prob_s1y1
-
-    np.random.seed(seed)
-
-    y = np.zeros(n)
-    s = np.zeros(n)
-
-    for i in range(n):
-        # Randomly assign y and s based on specified probabilities for each group
-        group_probabilities = [prob_s0y0, prob_s0y1, prob_s1y0, prob_s1y1]
-        group = np.random.choice(4, p=group_probabilities)
-        
-        if group == 0:
-            y[i] = 0
-            s[i] = 0
-        elif group == 1:
-            y[i] = 1
-            s[i] = 0
-        elif group == 2:
-            y[i] = 0
-            s[i] = 1
-        elif group == 3:
-            y[i] = 1
-            s[i] = 1
-
-    cov_ye = covy * np.identity(dy)
-    cov_se = covs * np.identity(ds)
-
-    ye = []
-    se = []
-
-    for yi in y:
-        if yi == 1:
-            ye.append(np.random.multivariate_normal(-1 * yscale * np.ones(dy), cov_ye))
-        elif yi == 0:
-            ye.append(np.random.multivariate_normal(yscale * np.ones(dy), cov_ye))
-
-    for si in s:
-        if si == 1:
-            se.append(np.random.multivariate_normal(-1 * sscale * np.ones(ds), cov_se))
-        elif si == 0:
-            se.append(np.random.multivariate_normal(sscale * np.ones(ds), cov_se))
-
-    ye = np.array(ye)
-    se = np.array(se)
-
-    x = np.hstack((ye, se))
-
-    # Calculate the joint probabilities from y and s
-    # joint_probabilities = calculate_joint_probabilities(y, s)
-    # print_joint_probability_chart_plain(joint_probabilities)
-    # print(f'correlation coef of y and s: {np.corrcoef(s, y)[0,1]:.4f}')
-    # exit()
-    if not gen_graph:
-        return None, y, s, x
-
-    adj_y = y[:, np.newaxis] == y[np.newaxis, :]  # two samples with the same label -> link
-    adj_s = s[:, np.newaxis] == s[np.newaxis, :]  # two samples with the same sens_attr -> link
-    adj_y = adj_y.astype(int)
-    adj_s = adj_s.astype(int)
-    adj_s[s.astype(bool)] *= 2  # different sens_attr,0; two s=0,1; two s=1,2;
-    adj_y = np.array([pydif, pysame])[adj_y]
-    adj_s = np.array([psdif, pssame0, pssame1])[adj_s]
-    adj_y = np.random.rand(n, n) < adj_y
-    adj_s = np.random.rand(n, n) < adj_s
-    adj_y = adj_y.astype(int)
-    adj_s = adj_s.astype(int)
-    adj = adj_y | adj_s
-    adj = np.triu(adj) + np.triu(adj, 1).T
-    adj = sp.csr_matrix(adj)
-
-    return adj, y, s, x
-
-def gen_synthetic(args, gen_graph=True, seed=20):
-    # Parameters for feature generation
-    n = args.n              # num samples
-    yscale = args.yscale        
-    sscale = args.sscale        
-    covy = args.covy        # diagonal elements of covariance matrix of y
-    covs = args.covs        # diagonal elements of covariance matrix of s
-    dy = args.dy            # dim of feature matrix based on label 
-    ds = args.ds            # dim of feature matrix based on sens_attr
-    # Define the probabilities for each group
-    # prob_s0y0 = args.prob_s0y0
-    # prob_s0y1 = args.prob_s0y1
-    # prob_s1y0 = args.prob_s1y0
-    # prob_s1y1 = args.prob_s1y1
-    prob_s0y0 = 0.25
-    prob_s0y1 = 0.25
-    prob_s1y0 = 0.25
-    prob_s1y1 = 0.25
-    # Define the probabilities for each edge type
-    # same s, same y
-    prob_s0y0_s0y0 = 0.008
-    prob_s0y1_s0y1 = 0.004
-    prob_s1y0_s1y0 = 0.004
-    prob_s1y1_s1y1 = 0.006
-    # different s, same y
-    prob_s0y0_s1y0 = 0.002
-    prob_s0y1_s1y1 = 0.002
-    # same s, different y
-    prob_s0y0_s0y1 = 0.002
-    prob_s1y0_s1y1 = 0.002
-    # different s, different y
-    prob_s0y0_s1y1 = 0.001
-    prob_s0y1_s1y0 = 0.002
-    
-    prob_edges = {
-        's0y0-s0y0': prob_s0y0_s0y0,
-        's0y0-s0y1': prob_s0y0_s0y1,
-        's0y0-s1y0': prob_s0y0_s1y0,
-        's0y0-s1y1': prob_s0y0_s1y1,
-        's0y1-s0y1': prob_s0y1_s0y1,
-        's0y1-s1y0': prob_s0y1_s1y0,
-        's0y1-s1y1': prob_s0y1_s1y1,
-        's1y0-s1y0': prob_s1y0_s1y0,
-        's1y0-s1y1': prob_s1y0_s1y1,
-        's1y1-s1y1': prob_s1y1_s1y1,
-    }
-
-    np.random.seed(seed)
-
-    y = np.zeros(n)
-    s = np.zeros(n)
-
-    for i in range(n):
-        # Randomly assign y and s based on specified probabilities for each group
-        group_probabilities = [prob_s0y0, prob_s0y1, prob_s1y0, prob_s1y1]
-        group = np.random.choice(4, p=group_probabilities)
-        
-        if group == 0:
-            y[i] = 0
-            s[i] = 0
-        elif group == 1:
-            y[i] = 1
-            s[i] = 0
-        elif group == 2:
-            y[i] = 0
-            s[i] = 1
-        elif group == 3:
-            y[i] = 1
-            s[i] = 1
-
-    cov_ye = covy * np.identity(dy)
-    cov_se = covs * np.identity(ds)
-
-    ye = []
-    se = []
-
-    for yi in y:
-        if yi == 1:
-            ye.append(np.random.multivariate_normal(-1 * yscale * np.ones(dy), cov_ye))
-        elif yi == 0:
-            ye.append(np.random.multivariate_normal(yscale * np.ones(dy), cov_ye))
-
-    for si in s:
-        if si == 1:
-            se.append(np.random.multivariate_normal(-1 * sscale * np.ones(ds), cov_se))
-        elif si == 0:
-            se.append(np.random.multivariate_normal(sscale * np.ones(ds), cov_se))
-
-    ye = np.array(ye)
-    se = np.array(se)
-    x = np.hstack((ye, se))
-
-    if not gen_graph:
-        return None, y, s, x
-
-    adj = np.zeros((n, n))
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            edge_type_ij = f's{int(s[i])}y{int(y[i])}-s{int(s[j])}y{int(y[j])}'
-            edge_type_ji = f's{int(s[j])}y{int(y[j])}-s{int(s[i])}y{int(y[i])}'
-
-            if edge_type_ij in prob_edges:
-                edge_probability = prob_edges[edge_type_ij]
-                adj[i, j] = np.random.rand() < edge_probability
-                adj[j, i] = adj[i, j]
-
-            elif edge_type_ji in prob_edges:
-                edge_probability = prob_edges[edge_type_ji]
-                adj[i, j] = np.random.rand() < edge_probability
-                adj[j, i] = adj[i, j]
-
-    adj = sp.csr_matrix(adj)
-
-    return adj, y, s, x
-
-def load_syn(args, gen_graph=True, train_ratio=0.6,seed=20):
-    print(f'load {args.dataset}.')
-    if args.dataset == 'synthetic':
-        adj, labels, sens, features = gen_synthetic(args, gen_graph)
-        n = features.shape[0]
-    elif args.dataset in ['syn-1', 'syn-2']:
-        path = os.path.join('./dataset', args.dataset)
-        labels = np.loadtxt(f'{path}/label.txt', dtype=int)
-        sens = np.loadtxt(f'{path}/sens.txt', dtype=int)
-        features = np.loadtxt(f'{path}/feat.csv', delimiter=',')
-        edges = np.loadtxt(f'{path}/edges.csv', delimiter=',', dtype=int)
-        n = features.shape[0]
-        adj_coo = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])), shape=(n, n))
-        adj = adj_coo.tocsr()
-
-    features = sp.csr_matrix(features, dtype=np.float32)
-    if gen_graph:
-        adj = adj + sp.eye(n)
-    features = torch.FloatTensor(np.array(features.todense()))
-    labels = torch.LongTensor(labels)
-
-    np.random.seed(seed)
-    idx = np.arange(n)
-    np.random.shuffle(idx)
-    idx_train = idx[:int(n*train_ratio)]
-    idx_val = idx[int(n*train_ratio): int(n*(1+train_ratio)/2)]
-    idx_test = idx[int(n*(1+train_ratio)/2):]
-    sens_idx = set(np.where(sens >= 0)[0])
-    idx_sens_train = list(sens_idx - set(idx_val) - set(idx_test))
-    random.shuffle(idx_sens_train)
-    idx_sens_train = torch.LongTensor(idx_sens_train)
-    
-    sens = torch.FloatTensor(sens)
-    idx_train = torch.LongTensor(idx_train)
-    idx_val = torch.LongTensor(idx_val)
-    idx_test = torch.LongTensor(idx_test)
-
-    return adj, features, labels, idx_train, idx_val, idx_test, sens, idx_sens_train
-
-
-def load_sport(path="./dataset/sport", train_ratio=0.6,seed=20,test_idx=False):
-    with open(os.path.join(path, 'sport_embedding.pkl'), 'rb') as pkl_file:
-        data = pickle.load(pkl_file)    
-    data = data.dropna(subset=['sport'])
-    data = data.dropna(subset=['race'])
-    data = data.drop_duplicates(subset=['user_id'])
-    data = data.reset_index(drop=True)
-    
-    # get features
-    emb = pd.Series(data['embeddings']).apply(lambda x: x[0])
-    emb = pd.DataFrame(emb.tolist())    
-    features = sp.csr_matrix(emb.values, dtype=np.float32)  
-    features = torch.FloatTensor(np.array(features.todense()))
-    
-    # get labels
-    labels = data['sport'].values.ravel()
-    labels = (labels == 'mlb').astype(int)  
-    labels = torch.LongTensor(labels)
-    
-    # build graph
-    idx = np.array(data['user_id'], dtype=int)  
-    idx_map = {j: i for i, j in enumerate(idx)} 
-    edges_unordered = np.genfromtxt(os.path.join(path,"sport_edges.txt"), dtype=int)    
-    filtered_edges = edges_unordered[np.isin(edges_unordered, idx).all(axis=1)]
-    edges = np.array(list(map(idx_map.get, filtered_edges.flatten())), dtype=int).reshape(filtered_edges.shape)
-    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
-                            shape=(labels.shape[0], labels.shape[0]), dtype=np.float32)
-    
-    # build symmetric adjacency matrix
-    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
-    adj = adj + sp.eye(adj.shape[0])
-    
-    # get sens & idx
-    sens = np.array(data['race'], dtype=int)    
-    sens_idx = set(np.where(sens >= 0)[0])
-    sens = torch.FloatTensor(sens)
-    random.seed(20)
-    label_idx = np.where(labels>=0)[0]
-    random.shuffle(label_idx)
-    n = len(label_idx)
-    idx_train = label_idx[:int(n*train_ratio)]
-    idx_val = label_idx[int(n*train_ratio): int(n*(1+train_ratio)/2)]
-    idx_test = label_idx[int(n*(1+train_ratio)/2):]
-
-    idx_sens_train = list(sens_idx - set(idx_val) - set(idx_test))
-    random.shuffle(idx_sens_train)
-    idx_sens_train = torch.LongTensor(idx_sens_train)
-    idx_train = torch.LongTensor(idx_train)
-    idx_val = torch.LongTensor(idx_val)
-    idx_test = torch.LongTensor(idx_test)
-
-    return adj, features, labels, idx_train, idx_val, idx_test, sens,idx_sens_train
-
-def load_occ(path='./dataset/occupation', train_ratio=0.6):
-    dataset = 'occ'
-
-    data = pd.read_hdf(os.path.join(path,'{}_embeddings.h5'.format(dataset)), key='occ')  #print(data)
-    # get features
-    emb = pd.DataFrame(data['embeddings'].tolist())    #print(emb, type(emb), emb.shape)
-    features = sp.csr_matrix(emb.values, dtype=np.float32)  #print(features, type(features))
-    features = torch.FloatTensor(np.array(features.todense()))
-    # get labels
-    labels = np.array(data['area'], dtype=int)    #print(labels, type(labels))
-    labels = torch.LongTensor(labels)
-    idx = np.array(data['user_id'], dtype=int)  #print(idx, type(idx), idx.shape)
-    idx_map = {j: i for i, j in enumerate(idx)} 
-    edges_unordered = np.genfromtxt(os.path.join(path,'{}_edges.txt'.format(dataset)), dtype=int)    #print(edges_unordered, type(edges_unordered), edges_unordered.shape)
-    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())), dtype=int).reshape(edges_unordered.shape)
-    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
-                            shape=(labels.shape[0], labels.shape[0]), dtype=np.float32)
-    # build symmetric adjacency matrix
-    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
-    adj = adj + sp.eye(adj.shape[0])
-    
-    # get sens & idx
-    sens = data['gender'].values.ravel()
-    sens = (sens == 'female').astype(int)    #print(sens, type(sens))
-    sens_idx = set(np.where(sens >= 0)[0])
-    sens = torch.FloatTensor(sens)
-
-    random.seed(20)
-    label_idx = np.where(labels>=0)[0]
-    random.shuffle(label_idx)
-    n = len(label_idx)
-    idx_train = label_idx[:int(n*train_ratio)]
-    idx_val = label_idx[int(n*train_ratio): int(n*(1+train_ratio)/2)]
-    idx_test = label_idx[int(n*(1+train_ratio)/2):]
-    
-    idx_sens_train = list(sens_idx - set(idx_val) - set(idx_test))
-    random.shuffle(idx_sens_train)
-    idx_sens_train = torch.LongTensor(idx_sens_train)
-    idx_train = torch.LongTensor(idx_train)
-    idx_val = torch.LongTensor(idx_val)
-    idx_test = torch.LongTensor(idx_test)
-
-    return adj, features, labels, idx_train, idx_val, idx_test, sens, idx_sens_train
-
-
-def group_acc(pred, labels, sens):
-    idx_s0 = sens==0
-    idx_s1 = sens==1
-    idx_s0_y0 = np.bitwise_and(idx_s0, labels==0)
-    idx_s1_y0 = np.bitwise_and(idx_s1, labels==0)
-    idx_s0_y1 = np.bitwise_and(idx_s0, labels==1)
-    idx_s1_y1 = np.bitwise_and(idx_s1, labels==1)
-    acc_s0_y0 = sum(np.logical_not(pred[idx_s0_y0]))/sum(idx_s0_y0)
-    acc_s1_y0 = sum(np.logical_not(pred[idx_s1_y0]))/sum(idx_s1_y0)
-    acc_s0_y1 = sum(pred[idx_s0_y1])/sum(idx_s0_y1)
-    acc_s1_y1 = sum(pred[idx_s1_y1])/sum(idx_s1_y1)
-    return [acc_s0_y0, acc_s0_y1, acc_s1_y0, acc_s1_y1]
-
-# def normalize(mx):
-#     """Row-normalize sparse matrix"""
-#     rowsum = np.array(mx.sum(1))
-#     r_inv = np.power(rowsum, -1).flatten()
-#     r_inv[np.isinf(r_inv)] = 0.
-#     r_mat_inv = sp.diags(r_inv)
-#     mx = r_mat_inv.dot(mx)
-#     return mx
+    # Filtering eligible nodes
+    nodes_a = [i for i in range(len(sens)) if sens[i] == edge_type[0] and labels[i] == edge_type[1]]
+    nodes_b = [i for i in range(len(sens)) if sens[i] == edge_type[2] and labels[i] == edge_type[3]]
+
+    potential_edges = set((a, b) for a in nodes_a for b in nodes_b if a < b)
+
+    # Removing pre-existing edges from potential edges
+    adj_coo = adj.tocoo()
+    existing_edges = set(zip(adj_coo.row, adj_coo.col))
+    potential_edges -= existing_edges
+
+    # Convert the set of potential edges into a list and randomly select the edges to be added
+    potential_edges_list = list(potential_edges)
+    num_edges_to_add = min(num_edges_to_add, len(potential_edges_list))
+    selected_indices = np.random.choice(len(potential_edges_list), size=num_edges_to_add, replace=False)
+    new_edges = [potential_edges_list[i] for i in selected_indices]
+
+    # add edges
+    rows, cols = zip(*new_edges)
+    data = np.ones(len(rows))
+    new_edges_matrix = sp.coo_matrix((data, (rows, cols)), shape=adj.shape)
+
+    # Combining old and new adjacency matrices
+    adj = adj + new_edges_matrix + new_edges_matrix.T  
+
+    return adj.tocsr()
+
+def remove_edges(adj, sens, labels, num_edges_to_remove, edge_type):
+    np.random.seed(42)
+
+    adj_coo = adj.tocoo()
+    possible_edges = [(i, j) for i, j in zip(adj_coo.row, adj_coo.col) if
+                      ((sens[i], labels[i], sens[j], labels[j]) == edge_type or 
+                       (sens[j], labels[j], sens[i], labels[i]) == edge_type) and i < j]
+
+    # Randomly select the index of the edge to be removed
+    num_edges_to_remove = min(num_edges_to_remove, len(possible_edges))
+    remove_indices = np.random.choice(len(possible_edges), size=num_edges_to_remove, replace=False)
+
+    # Construct an array to indicate which edges need to be preserved
+    keep_mask = np.ones(len(adj_coo.data), dtype=bool)
+    for idx in remove_indices:
+        i, j = possible_edges[idx]
+        keep_mask &= ~((adj_coo.row == i) & (adj_coo.col == j))
+        keep_mask &= ~((adj_coo.row == j) & (adj_coo.col == i))
+
+    # Using Boolean indexes to keep un-removed edges
+    adj_coo.data = adj_coo.data[keep_mask]
+    adj_coo.row = adj_coo.row[keep_mask]
+    adj_coo.col = adj_coo.col[keep_mask]
+
+    # Reconstructing the sparse matrix
+    adj_new = sp.coo_matrix((adj_coo.data, (adj_coo.row, adj_coo.col)), shape=adj.shape).tocsr()
+
+    return adj_new
 
 def feature_norm(features):
     min_values = features.min(axis=0)[0]
@@ -756,25 +159,21 @@ def fair_metric(pred, labels, sens):
     equality = abs(sum(pred[idx_s0_y1])/sum(idx_s0_y1)-sum(pred[idx_s1_y1])/sum(idx_s1_y1))
     return parity.item(), equality.item()
 
-# def accuracy_softmax(output, labels):
-#     preds = output.max(1)[1].type_as(labels)
-#     correct = preds.eq(labels).double()
-#     correct = correct.sum()
-#     return correct / len(labels)
+def group_acc(pred, labels, sens):
+    idx_s0 = sens==0
+    idx_s1 = sens==1
+    idx_s0_y0 = np.bitwise_and(idx_s0, labels==0)
+    idx_s1_y0 = np.bitwise_and(idx_s1, labels==0)
+    idx_s0_y1 = np.bitwise_and(idx_s0, labels==1)
+    idx_s1_y1 = np.bitwise_and(idx_s1, labels==1)
+    acc_s0_y0 = sum(np.logical_not(pred[idx_s0_y0]))/sum(idx_s0_y0)
+    acc_s1_y0 = sum(np.logical_not(pred[idx_s1_y0]))/sum(idx_s1_y0)
+    acc_s0_y1 = sum(pred[idx_s0_y1])/sum(idx_s0_y1)
+    acc_s1_y1 = sum(pred[idx_s1_y1])/sum(idx_s1_y1)
+    return [acc_s0_y0, acc_s0_y1, acc_s1_y0, acc_s1_y1]
 
-# def sparse_mx_to_torch_sparse_tensor(sparse_mx):
-#     """Convert a scipy sparse matrix to a torch sparse tensor."""
-#     sparse_mx = sparse_mx.tocoo().astype(np.float32)
-#     indices = torch.from_numpy(
-#         np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int64))
-#     values = torch.from_numpy(sparse_mx.data)
-#     shape = torch.Size(sparse_mx.shape)
-#     return torch.sparse.FloatTensor(indices, values, shape)
 
-def pp(feature, head):
-    print(feature)
-    #print(head)
 
 if __name__ == '__main__':
-    load_pokec('nba','country','SALARY',path="./dataset/nba/")
+    
     print("finish.")

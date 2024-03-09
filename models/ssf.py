@@ -31,15 +31,8 @@ class GCN(nn.Module):
         self.gc3 = GCNConv(nhid, nhid)
         self.dropout = nn.Dropout(dropout)
     def forward(self, x, edge_index):
-        # 原代码
         x = self.gc1(x, edge_index)
         
-        # without spectral
-        # x = self.gc2(x, edge_index)
-        # 如果变化层数
-        # x = F.relu(self.gc2(x, edge_index))
-        # x = self.dropout(x)
-        # x = self.gc3(x, edge_index)
         return x
 
 

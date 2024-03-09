@@ -37,6 +37,27 @@ common_properties:
     label_num: 100
     test_idx: True
 
+  sport: &sport
+    sens_attr: race
+    sens_idx: 0
+    sens_num: 3508
+    predict_attr: sport
+    label_num: 3508
+    train_ratio: 0.6
+
+  occupation: &occupation
+    sens_attr: gender
+    sens_idx: 0
+    sens_num: 6951
+    predict_attr: area
+    label_num: 6951
+    train_ratio: 0.6
+  
+  synthetic: &syn
+    sens_num: 5000
+    label_num: 5000
+    sens_idx: 1
+
 datasets:
   german:
     <<: *german
@@ -60,3 +81,15 @@ datasets:
 
   nba:
     <<: *nba
+
+  synthetic: 
+    <<: *syn
+  syn-1:
+    <<: *syn
+  syn-2:
+    <<: *syn
+
+  sport:
+    <<: *sport
+  occupation:
+    <<: *occupation
