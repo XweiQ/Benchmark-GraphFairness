@@ -1,6 +1,6 @@
 import argparse
 
-def get_baseline_args(parser):
+def get_base_args(parser):
     # dataset setting
     parser.add_argument('--dataset', type=str, default='german')
     # Training settings
