@@ -1,5 +1,5 @@
 # Addressing Shortcomings in Fair Graph Learning Datasets: Towards a New Benchmark
-The official repository for the paper "[Addressing Shortcomings in Fair Graph Learning Datasets: Towards a New Benchmark](https://openreview.net/pdf?id=smMGMPrUNI)".
+The official repository for the paper "[Addressing Shortcomings in Fair Graph Learning Datasets: Towards a New Benchmark](https://arxiv.org/abs/2403.06017)".
 
 ## Installation
 
@@ -59,3 +59,15 @@ Certainly, You can change the parameter search space or modify some commands to 
 ## Citation
 
 Please cite our paper if you found our datasets or code helpful.
+
+```latex
+@misc{qian2024addressing,
+      title={Addressing Shortcomings in Fair Graph Learning Datasets: Towards a New Benchmark}, 
+      author={Xiaowei Qian and Zhimeng Guo and Jialiang Li and Haitao Mao and Bingheng Li and Suhang Wang and Yao Ma},
+      year={2024},
+      eprint={2403.06017},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
+}
+```
+
