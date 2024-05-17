@@ -1,5 +1,5 @@
 # Addressing Shortcomings in Fair Graph Learning Datasets: Towards a New Benchmark
-The official repository for the paper "[Addressing Shortcomings in Fair Graph Learning Datasets: Towards a New Benchmark](https://arxiv.org/abs/2403.06017)".
+The official repository for the paper "[Addressing Shortcomings in Fair Graph Learning Datasets: Towards a New Benchmark](https://arxiv.org/abs/2403.06017)" *（KDD'24 ADS）*.
 
 ## Installation
 
