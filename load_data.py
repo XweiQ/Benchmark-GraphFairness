@@ -77,7 +77,6 @@ class DataLoader:
         # sens_features = idx_features_labels[sens_attr]
         
         labels = idx_features_labels[predict_attr]
-        labels[labels == -1] = 0
         labels[labels > 1] = 1
         
         features = torch.FloatTensor(np.array(features.todense()))
@@ -111,7 +110,11 @@ class DataLoader:
         # split setting for the real-world datasets in FairGNN
         elif self.name in ['pokecz_z', 'pokec_n', 'nba']:
             idx = np.array(idx_features_labels["user_id"], dtype=int)   # print(idx)
-            idx_map = {j: i for i, j in enumerate(idx)}        
+            idx_map = {j: i for i, j in enumerate(idx)}
+
+            # raw labels in nba: {-1, 0, 1}
+            # raw labels in pokec_n: {-1, 0, 1, 2, 3}   
+            # raw labels in pokec_z: {-1, 0, 1, 2, 3, 4}
             label_idx = np.where(labels>=0)[0]
             random.shuffle(label_idx)
             idx_train = label_idx[:min(int(0.5 * len(label_idx)),label_number)]
