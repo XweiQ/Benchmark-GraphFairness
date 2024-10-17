@@ -61,13 +61,12 @@ Certainly, You can change the parameter search space or modify some commands to 
 Please cite our paper if you found our datasets or code helpful.
 
 ```latex
-@misc{qian2024addressing,
-      title={Addressing Shortcomings in Fair Graph Learning Datasets: Towards a New Benchmark}, 
-      author={Xiaowei Qian and Zhimeng Guo and Jialiang Li and Haitao Mao and Bingheng Li and Suhang Wang and Yao Ma},
-      year={2024},
-      eprint={2403.06017},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG}
+@inproceedings{qian2024addressing,
+  title={Addressing Shortcomings in Fair Graph Learning Datasets: Towards a New Benchmark},
+  author={Qian, Xiaowei and Guo, Zhimeng and Li, Jialiang and Mao, Haitao and Li, Bingheng and Wang, Suhang and Ma, Yao},
+  booktitle={Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining},
+  pages={5602--5612},
+  year={2024}
 }
 ```
 
