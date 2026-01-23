@@ -223,7 +223,7 @@ class DataLoader:
     def load_pokec(self):
         def _preprocess_pokec(idx_features_labels, header, predict_attr, sens_attr):
             header.remove("user_id")
-            header.remove(sens_attr)
+            # header.remove(sens_attr)
             header.remove(predict_attr)
             return idx_features_labels, header
         return self._load_data(self.config['sens_attr'], self.config['predict_attr'], 

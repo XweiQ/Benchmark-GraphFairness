@@ -2,7 +2,7 @@
 common_properties: 
   german: &german
     sens_attr: Gender
-    sens_idx: 1
+    sens_idx: 0
     sens_num: 100
     predict_attr: GoodCustomer
     label_num: 100
@@ -23,7 +23,7 @@ common_properties:
 
   pokec: &pokec
     sens_attr: region
-    sens_idx: 1
+    sens_idx: 3
     sens_num: 200
     predict_attr: I_am_working_in_field
     label_num: 500
@@ -31,7 +31,7 @@ common_properties:
     
   nba: &nba
     sens_attr: country 
-    sens_idx: 1
+    sens_idx: 35
     sens_num: 50
     predict_attr: SALARY
     label_num: 100
@@ -56,7 +56,7 @@ common_properties:
   synthetic: &syn
     sens_num: 5000
     label_num: 5000
-    sens_idx: 1
+    sens_idx: 24
 
 datasets:
   german:
